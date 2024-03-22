@@ -353,7 +353,7 @@ namespace Microsoft.PowerShell
 
         internal static bool IsMinimalProgressRenderingEnabled()
         {
-            return ExperimentalFeature.IsEnabled(ExperimentalFeature.PSAnsiProgressFeatureName) && PSStyle.Instance.Progress.View == ProgressView.Minimal;
+            return PSStyle.Instance.Progress.View == ProgressView.Minimal;
         }
 
         /// <summary>
@@ -424,7 +424,7 @@ namespace Microsoft.PowerShell
 
             sb.Append(secRemain);
 
-            if (PercentComplete > 0 && PercentComplete < 100 && barWidth > 0)
+            if (PercentComplete >= 0 && PercentComplete < 100 && barWidth > 0)
             {
                 int barLength = PercentComplete * barWidth / 100;
                 if (barLength >= barWidth)

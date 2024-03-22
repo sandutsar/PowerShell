@@ -203,7 +203,7 @@ namespace Microsoft.PowerShell.Commands
         /// <summary>
         /// Default shellname.
         /// </summary>
-        protected const string DefaultPowerShellRemoteShellName = System.Management.Automation.Remoting.Client.WSManNativeApi.ResourceURIPrefix + "Microsoft.PowerShell";
+        protected const string DefaultPowerShellRemoteShellName = WSManNativeApi.ResourceURIPrefix + "Microsoft.PowerShell";
 
         /// <summary>
         /// Default application name for the connection uri.
@@ -287,6 +287,7 @@ namespace Microsoft.PowerShell.Commands
         public int Port;
         public string Subsystem;
         public int ConnectingTimeout;
+        public Hashtable Options;
     }
 
     /// <summary>
@@ -591,7 +592,7 @@ namespace Microsoft.PowerShell.Commands
         /// <summary>
         /// This parameters specifies the appname which identifies the connection
         /// end point on the remote machine. If this parameter is not specified
-        /// then the value specified in DEFAULTREMOTEAPPNAME will be used. If thats
+        /// then the value specified in DEFAULTREMOTEAPPNAME will be used. If that's
         /// not specified as well, then "WSMAN" will be used.
         /// </summary>
         [Parameter(ValueFromPipelineByPropertyName = true,
@@ -805,6 +806,13 @@ namespace Microsoft.PowerShell.Commands
             set;
         }
 
+        /// <summary>
+        /// Gets or sets the Hashtable containing options to be passed to OpenSSH.
+        /// </summary>
+        [Parameter(ParameterSetName = InvokeCommandCommand.SSHHostParameterSet)]
+        [ValidateNotNullOrEmpty]
+        public virtual Hashtable Options { get; set; }
+
         #endregion
 
         #endregion Properties
@@ -866,6 +874,7 @@ namespace Microsoft.PowerShell.Commands
         private const string PortParameter = "Port";
         private const string SubsystemParameter = "Subsystem";
         private const string ConnectingTimeoutParameter = "ConnectingTimeout";
+        private const string OptionsParameter = "Options";
 
         #endregion
 
@@ -968,6 +977,10 @@ namespace Microsoft.PowerShell.Commands
                     else if (paramName.Equals(ConnectingTimeoutParameter, StringComparison.OrdinalIgnoreCase))
                     {
                         connectionInfo.ConnectingTimeout = GetSSHConnectionIntParameter(item[paramName]);
+                    }
+                    else if (paramName.Equals(OptionsParameter, StringComparison.OrdinalIgnoreCase))
+                    {
+                        connectionInfo.Options = item[paramName] as Hashtable;
                     }
                     else
                     {
@@ -1462,7 +1475,7 @@ namespace Microsoft.PowerShell.Commands
             {
                 ParseSshHostName(computerName, out string host, out string userName, out int port);
 
-                var sshConnectionInfo = new SSHConnectionInfo(userName, host, KeyFilePath, port, Subsystem, ConnectingTimeout);
+                var sshConnectionInfo = new SSHConnectionInfo(userName, host, KeyFilePath, port, Subsystem, ConnectingTimeout, Options);
                 var typeTable = TypeTable.LoadDefaultTypeFiles();
                 var remoteRunspace = RunspaceFactory.CreateRunspace(sshConnectionInfo, Host, typeTable) as RemoteRunspace;
                 var pipeline = CreatePipeline(remoteRunspace);
@@ -1947,11 +1960,7 @@ namespace Microsoft.PowerShell.Commands
         /// <summary>
         /// Adds forwarded events to the local queue.
         /// </summary>
-        internal void OnRunspacePSEventReceived(object sender, PSEventArgs e)
-        {
-            if (this.Events != null)
-                this.Events.AddForwardedEvent(e);
-        }
+        internal void OnRunspacePSEventReceived(object sender, PSEventArgs e) => this.Events?.AddForwardedEvent(e);
 
         #endregion Private Methods
 
@@ -2269,7 +2278,7 @@ namespace Microsoft.PowerShell.Commands
             // Semantic checks on the using statement have already validated that there are no arbitrary expressions,
             // so we'll allow these expressions in everything but NoLanguage mode.
 
-            bool allowUsingExpressions = (Context.SessionState.LanguageMode != PSLanguageMode.NoLanguage);
+            bool allowUsingExpressions = Context.SessionState.LanguageMode != PSLanguageMode.NoLanguage;
             object[] usingValuesInArray = null;
             IDictionary usingValuesInDict = null;
 
@@ -2323,7 +2332,7 @@ namespace Microsoft.PowerShell.Commands
             try
             {
                 // This is trusted input as long as we're in FullLanguage mode
-                bool isTrustedInput = (Context.LanguageMode == PSLanguageMode.FullLanguage);
+                bool isTrustedInput = Context.LanguageMode == PSLanguageMode.FullLanguage;
                 powershell = _scriptBlock.GetPowerShell(isTrustedInput, _args);
             }
             catch (ScriptBlockToPowerShellNotSupportedException)
@@ -2374,7 +2383,8 @@ namespace Microsoft.PowerShell.Commands
 
                 foreach (var varAst in usingVariables)
                 {
-                    string varName = varAst.VariablePath.UserPath;
+                    VariablePath varPath = varAst.VariablePath;
+                    string varName = varPath.IsDriveQualified ? $"{varPath.DriveName}_{varPath.UnqualifiedPath}" : $"{varPath.UnqualifiedPath}";
                     string paramName = UsingExpressionAst.UsingPrefix + varName;
                     string paramNameWithDollar = "$" + paramName;
 
@@ -2418,7 +2428,7 @@ namespace Microsoft.PowerShell.Commands
                 // GetExpressionValue ensures that it only does variable access when supplied a VariableExpressionAst.
                 // So, this is still safe to use in ConstrainedLanguage and will not result in arbitrary code
                 // execution.
-                bool allowVariableAccess = (Context.SessionState.LanguageMode != PSLanguageMode.NoLanguage);
+                bool allowVariableAccess = Context.SessionState.LanguageMode != PSLanguageMode.NoLanguage;
 
                 foreach (var varAst in paramUsingVars)
                 {
@@ -2450,10 +2460,7 @@ namespace Microsoft.PowerShell.Commands
         /// <returns>A list of UsingExpressionAsts ordered by the StartOffset.</returns>
         private static List<VariableExpressionAst> GetUsingVariables(ScriptBlock localScriptBlock)
         {
-            if (localScriptBlock == null)
-            {
-                throw new ArgumentNullException(nameof(localScriptBlock), "Caller needs to make sure the parameter value is not null");
-            }
+            ArgumentNullException.ThrowIfNull(localScriptBlock, "Caller needs to make sure the parameter value is not null");
 
             var allUsingExprs = UsingExpressionAstSearcher.FindAllUsingExpressions(localScriptBlock.Ast);
             return allUsingExprs.Select(static usingExpr => UsingExpressionAst.ExtractUsingVariable((UsingExpressionAst)usingExpr)).ToList();
@@ -3467,10 +3474,7 @@ namespace Microsoft.PowerShell.Commands
                     OperationState.StopComplete;
             operationStateEventArgs.BaseEvent = baseEventArgs;
 
-            if (OperationComplete != null)
-            {
-                OperationComplete.SafeInvoke(this, operationStateEventArgs);
-            }
+            OperationComplete?.SafeInvoke(this, operationStateEventArgs);
         }
     }
 
@@ -3665,11 +3669,7 @@ namespace Microsoft.PowerShell.Commands
                 case PipelineState.Completed:
                 case PipelineState.Stopped:
                 case PipelineState.Failed:
-                    if (RemoteRunspace != null)
-                    {
-                        RemoteRunspace.CloseAsync();
-                    }
-
+                    RemoteRunspace?.CloseAsync();
                     break;
             }
         }
@@ -3940,9 +3940,9 @@ namespace Microsoft.PowerShell.Commands
                     string shellUri = null;
                     if (!string.IsNullOrEmpty(configurationName))
                     {
-                        shellUri = (configurationName.IndexOf(
-                                    System.Management.Automation.Remoting.Client.WSManNativeApi.ResourceURIPrefix, StringComparison.OrdinalIgnoreCase) != -1) ?
-                                    configurationName : System.Management.Automation.Remoting.Client.WSManNativeApi.ResourceURIPrefix + configurationName;
+                        shellUri = configurationName.Contains(WSManNativeApi.ResourceURIPrefix, StringComparison.OrdinalIgnoreCase)
+                            ? configurationName
+                            : WSManNativeApi.ResourceURIPrefix + configurationName;
                     }
 
                     foreach (Runspace runspace in runspaces)
@@ -4219,10 +4219,7 @@ namespace Microsoft.PowerShell.Commands
                 {
                     lock (s_SyncObject)
                     {
-                        if (s_TypeTable == null)
-                        {
-                            s_TypeTable = TypeTable.LoadDefaultTypeFiles();
-                        }
+                        s_TypeTable ??= TypeTable.LoadDefaultTypeFiles();
                     }
                 }
 

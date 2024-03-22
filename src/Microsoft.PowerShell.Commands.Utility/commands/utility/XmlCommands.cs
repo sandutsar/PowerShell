@@ -128,7 +128,7 @@ namespace Microsoft.PowerShell.Commands
             }
         }
 
-        private Encoding _encoding = ClrFacade.GetDefaultEncoding();
+        private Encoding _encoding = Encoding.Default;
 
         #endregion Command Line Parameters
 
@@ -208,7 +208,10 @@ namespace Microsoft.PowerShell.Commands
         {
             Dbg.Assert(Path != null, "FileName is mandatory parameter");
 
-            if (!ShouldProcess(Path)) return;
+            if (!ShouldProcess(Path))
+            {
+                return;
+            }
 
             StreamWriter sw;
             PathUtils.MasterStreamOpen(
@@ -439,7 +442,7 @@ namespace Microsoft.PowerShell.Commands
             }
             else
             {
-                WriteObject(string.Format(CultureInfo.InvariantCulture, "<?xml version=\"1.0\" encoding=\"{0}\"?>", Encoding.UTF8.WebName));
+                WriteObject(string.Create(CultureInfo.InvariantCulture, $"<?xml version=\"1.0\" encoding=\"{Encoding.UTF8.WebName}\"?>"));
                 WriteObject("<Objects>");
             }
         }
@@ -453,8 +456,7 @@ namespace Microsoft.PowerShell.Commands
             {
                 CreateMemoryStream();
 
-                if (_serializer != null)
-                    _serializer.SerializeAsStream(InputObject);
+                _serializer?.SerializeAsStream(InputObject);
 
                 if (_serializer != null)
                 {
@@ -472,8 +474,7 @@ namespace Microsoft.PowerShell.Commands
             }
             else
             {
-                if (_serializer != null)
-                    _serializer.Serialize(InputObject);
+                _serializer?.Serialize(InputObject);
             }
         }
 
@@ -763,12 +764,10 @@ namespace Microsoft.PowerShell.Commands
                 while (!_deserializer.Done() && count < first)
                 {
                     object result = _deserializer.Deserialize();
-                    PSObject psObject = result as PSObject;
 
-                    if (psObject != null)
+                    if (result is PSObject psObject)
                     {
-                        ICollection c = psObject.BaseObject as ICollection;
-                        if (c != null)
+                        if (psObject.BaseObject is ICollection c)
                         {
                             foreach (object o in c)
                             {
@@ -801,19 +800,13 @@ namespace Microsoft.PowerShell.Commands
             }
         }
 
-        internal void Stop()
-        {
-            if (_deserializer != null)
-            {
-                _deserializer.Stop();
-            }
-        }
+        internal void Stop() => _deserializer?.Stop();
     }
 
     #region Select-Xml
-    ///<summary>
-    ///This cmdlet is used to search an xml document based on the XPath Query.
-    ///</summary>
+    /// <summary>
+    /// This cmdlet is used to search an xml document based on the XPath Query.
+    /// </summary>
     [Cmdlet(VerbsCommon.Select, "Xml", DefaultParameterSetName = "Xml", HelpUri = "https://go.microsoft.com/fwlink/?LinkID=2097031")]
     [OutputType(typeof(SelectXmlInfo))]
     public class SelectXmlCommand : PSCmdlet

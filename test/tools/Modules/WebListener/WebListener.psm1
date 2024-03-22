@@ -102,7 +102,7 @@ function Start-WebListener
         [int]$HttpPort = 8083,
 
         [ValidateRange(1,65535)]
-        [int]$HttpsPort = 8084,
+        [int]$HttpsPort = 9084,
 
         [ValidateRange(1,65535)]
         [int]$Tls11Port = 8085,
@@ -122,7 +122,7 @@ function Start-WebListener
             return $runningListener
         }
 
-        $initTimeoutSeconds  = 15
+        $initTimeoutSeconds  = 25
         $appExe              = (Get-Command WebListener).Path
         $serverPfx           = 'ServerCert.pfx'
         $serverPfxPassword   = New-RandomHexString
@@ -235,6 +235,10 @@ function Get-WebListenerUrl {
             'ResponseHeaders',
             'Resume',
             'Retry',
+            'Stall',
+            'StallGZip',
+            'StallBrotli',
+            'StallDeflate',
             '/'
         )]
         [String]$Test,

@@ -26,10 +26,9 @@ The PowerShell Committee and its members (aka Committee Members) are the primary
 ### Current Committee Members
 
 * Bruce Payette ([BrucePay](https://github.com/BrucePay))
-* Dongbo Wang ([daxian-dbw](https://github.com/daxian-dbw))
 * Jim Truher ([JamesWTruher](https://github.com/JamesWTruher))
-* Joey Aiello ([joeyaiello](https://github.com/joeyaiello))
-* Kenneth Hansen ([khansen00](https://github.com/khansen00))
+* Paul Higinbotham ([paulhigin](https://github.com/paulhigin))
+* Rob Holt ([rjmholt](https://github.com/rjmholt))
 * Steve Lee ([SteveL-MSFT](https://github.com/SteveL-MSFT))
 
 ### Committee Member Responsibilities
@@ -148,4 +147,4 @@ See our [Pull Request Process][pull-request-process]
 [docs-contributing]: https://github.com/PowerShell/PowerShell-Docs/blob/staging/CONTRIBUTING.md
 [maintainers]: ../maintainers/README.md
 [wg]: ./working-group.md
-[wg-defintions]: ./working-group-definitions.md
+[wg-definitions]: ./working-group-definitions.md

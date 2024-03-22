@@ -92,6 +92,22 @@ Describe "Basic FileSystem Provider Tests" -Tags "CI" {
             $existsAfter | Should -BeFalse
         }
 
+        It "Verify Remove-Item for file" {
+            $longDir = 'a' * 250
+            $longSubDir = 'b' * 250
+            $fileName = "file1.txt"
+            $topPath = Join-Path $TestDrive $longDir
+            $longDirPath = Join-Path $topPath $longSubDir
+            $longFilePath = Join-Path $longDirPath $fileName
+            $null = New-Item -itemtype file -path $longFilePath -force
+
+            $longFilePath | Should -Exist
+
+            Remove-Item -Path $longFilePath -Force
+
+            $longFilePath | Should -Not -Exist
+        }
+
         It "Verify Rename-Item for file" {
             Rename-Item -Path $testFile -NewName $newTestFile -ErrorAction Stop
             $testFile | Should -Not -Exist
@@ -154,9 +170,35 @@ Describe "Basic FileSystem Provider Tests" -Tags "CI" {
         }
 
         It "Verify Move-Item will not move to an existing file" {
-            { Move-Item -Path $testDir -Destination $testFile -ErrorAction Stop } | Should -Throw -ErrorId 'DirectoryExist,Microsoft.PowerShell.Commands.MoveItemCommand'
-            $error[0].Exception | Should -BeOfType System.IO.IOException
+            if ($IsWindows) {
+                $expectedError = 'MoveDirectoryItemIOError,Microsoft.PowerShell.Commands.MoveItemCommand'
+            }
+            else {
+                $expectedError = 'DirectoryExist,Microsoft.PowerShell.Commands.MoveItemCommand'
+            }
+
+            $e = { Move-Item -Path $testDir -Destination $testFile -ErrorAction Stop } | Should -Throw -ErrorId $expectedError -PassThru
+            $e.Exception | Should -BeOfType System.IO.IOException
             $testDir | Should -Exist
+        }
+
+        It 'Verify Move-Item fails for non-existing destination path' {
+            $e = { Move-Item -Path $testDir -Destination TestDrive:/0/2/0 -ErrorAction Stop } | Should -Throw -ErrorId 'MoveDirectoryItemIOError,Microsoft.PowerShell.Commands.MoveItemCommand' -PassThru
+            $e.Exception | Should -BeOfType System.IO.IOException
+        }
+
+        It 'Verify Move-Item fails for destination that is subdir of source with trailing: <trailingChar>' -TestCases @(
+            @{ trailingChar = [System.IO.Path]::DirectorySeparatorChar }
+            @{ trailingChar = [System.IO.Path]::AltDirectorySeparatorChar }
+            @{ trailingChar = '' }
+        ) {
+            param($trailingChar)
+
+            $dest = Join-Path -Path $TestDrive -ChildPath dest
+            $null = New-item -ItemType Directory -Path $dest -Force -ErrorAction Stop
+            $src = "$TestDrive$trailingChar"
+
+            { Move-Item -Path $src -Destination $dest -ErrorAction Stop } | Should -Throw -ErrorId 'MoveItemArgumentError,Microsoft.PowerShell.Commands.MoveItemCommand'
         }
 
         It "Verify Move-Item throws correct error for non-existent source" {
@@ -275,6 +317,12 @@ Describe "Basic FileSystem Provider Tests" -Tags "CI" {
                 Remove-Item -Path $testPath -Recurse -Force -ErrorAction SilentlyContinue
             }
          }
+
+         It "Copy-Item can copy 0 byte length file" {
+            $zeroLengthFile = New-Item -Path (Join-Path $TestDrive "zeroLengthFile.txt") -ItemType File -Force
+            Copy-Item -Path $zeroLengthFile -Destination "$TestDrive\zeroLengthFile2.txt" -Force
+            "$TestDrive\zeroLengthFile2.txt" | Should -Exist
+         }
     }
 
     Context "Validate behavior when access is denied" {
@@ -306,6 +354,10 @@ Describe "Basic FileSystem Provider Tests" -Tags "CI" {
             @{cmdline = "Move-Item -Path $protectedPath -Destination bar -ErrorAction Stop"; expectedError = $fqaccessdenied}
         ) {
             param ($cmdline, $expectedError)
+
+            if (Test-IsElevated) {
+                Set-ItResult -Skipped -Because "Process must NOT be elevated"
+            }
 
             $scriptBlock = [scriptblock]::Create($cmdline)
             $scriptBlock | Should -Throw -ErrorId $expectedError
@@ -477,6 +529,43 @@ Describe "Handling of globbing patterns" -Tags "CI" {
             Test-Path -LiteralPath $testPath2 | Should -BeTrue
         }
     }
+
+    Context "Device paths" {
+        # The globber is overly greedy somewhere so you need to escape the escape backtick to preserve the question mark issue https://github.com/PowerShell/PowerShell/issues/19627
+        It "Handle device paths: <path>" -Skip:(!$IsWindows) -TestCases @(
+            @{ path = "\\.\${env:SystemDrive}\" }
+            @{ path = "\\.\${env:SystemDrive}\*" }
+            @{ path = "\\``?\${env:SystemDrive}\" }
+            @{ path = "\\``?\${env:SystemDrive}\*" }
+        ) {
+            param($path)
+            $expected = Get-ChildItem -Path ${env:SystemDrive}\
+            $result = Get-ChildItem -Path $path
+            $result.Count | Should -Be $expected.Count
+        }
+
+        It "Handle folders within a device path: <path>" -Skip:(!$IsWindows) -TestCases @(
+            @{ path = "\\.\${env:SystemRoot}\" }
+            @{ path = "\\.\${env:SystemRoot}\*" }
+            @{ path = "\\``?\${env:SystemRoot}\" }
+            @{ path = "\\``?\${env:SystemRoot}\*" }
+        ) {
+            param($path)
+            $expected = Get-ChildItem -Path ${env:SystemRoot}
+            $result = Get-ChildItem -Path $path
+            $result.Count | Should -Be $expected.Count
+        }
+
+        It "Fails for invalid device path: <path>" -Skip:(!$IsWindows) -TestCases @(
+            @{ path = "\\.\INVALID0\" }
+            @{ path = "\\``?\INVALID0\" }
+            # @{ path = "\\.\INVALID0\*" }  // problem in globber where this fails but is ignored issue https://github.com/PowerShell/PowerShell/issues/19626
+            # @{ path = "\\``?\INVALID0\*" }
+        ) {
+            param($path)
+            { Get-ChildItem -Path $path -ErrorAction Stop } | Should -Throw -ErrorId 'PathNotFound,Microsoft.PowerShell.Commands.GetChildItemCommand'
+        }
+    }
 }
 
 Describe "Hard link and symbolic link tests" -Tags "CI", "RequireAdminOnWindows" {
@@ -498,6 +587,7 @@ Describe "Hard link and symbolic link tests" -Tags "CI", "RequireAdminOnWindows"
         $nonFile = Join-Path $TestPath "not-a-file"
         $fileContent = "some text"
         $realDir = Join-Path $TestPath "subdir"
+        $realDir2 = Join-Path $TestPath "second-subdir"
         $nonDir = Join-Path $TestPath "not-a-dir"
         $hardLinkToFile = Join-Path $TestPath "hard-to-file.txt"
         $symLinkToFile = Join-Path $TestPath "sym-link-to-file.txt"
@@ -508,6 +598,7 @@ Describe "Hard link and symbolic link tests" -Tags "CI", "RequireAdminOnWindows"
 
         New-Item -ItemType File -Path $realFile -Value $fileContent > $null
         New-Item -ItemType Directory -Path $realDir > $null
+        New-Item -ItemType Directory -Path $realDir2 > $null
     }
 
     Context "New-Item and hard/symbolic links" {
@@ -558,6 +649,46 @@ Describe "Hard link and symbolic link tests" -Tags "CI", "RequireAdminOnWindows"
             New-Item -ItemType Junction -Path $junctionToDir -Value $realDir > $null
             Test-Path $junctionToDir | Should -BeTrue
         }
+
+        It 'New-Item fails creating junction with relative path' -Skip:(!$IsWindows) {
+            try {
+                Push-Location $TestDrive
+                1 > 1.txt
+                { New-Item -ItemType Junction -Path 2.txt -Target 1.txt -ErrorAction Stop } | Should -Throw -ErrorId "NotAbsolutePath,Microsoft.PowerShell.Commands.NewItemCommand"
+            }
+            finally {
+                Pop-Location
+            }
+        }
+
+        It 'New-Item can create hardlink with relative path' {
+            try {
+                Push-Location $TestDrive
+                1 > 1.txt
+                New-Item -ItemType HardLink -Path 2.txt -Target 1.txt -ErrorAction Stop
+                $hl = Get-Item -Path .\2.txt -ErrorAction Stop
+                $hl.LinkType | Should -BeExactly "HardLink"
+            }
+            finally {
+                Pop-Location
+            }
+        }
+
+        It 'New-Item will fail to forcibly create hardlink to itself' {
+            $i = New-Item -ItemType File -Path "$TestDrive\file.txt" -Force -ErrorAction Ignore
+            { New-Item -ItemType HardLink -Path $i -Target $i -Force -ErrorAction Stop } | Should -Throw -ErrorId "TargetIsSameAsLink,Microsoft.PowerShell.Commands.NewItemCommand"
+        }
+
+        It "New-Item -Force can overwrite a junction" -Skip:(-Not $IsWindows){
+            $rd2 = Get-Item -Path $realDir2
+            New-Item -Name testfile.txt -ItemType file -Path $realDir
+            New-Item -ItemType Junction -Path $junctionToDir -Value $realDir > $null
+            Test-Path $junctionToDir | Should -BeTrue
+            { New-Item -ItemType Junction -Path $junctionToDir -Value $realDir -ErrorAction Stop > $null } | Should -Throw -ErrorId "DirectoryNotEmpty,Microsoft.PowerShell.Commands.NewItemCommand"
+            New-Item -ItemType Junction -Path $junctionToDir -Value $realDir2 -Force > $null
+            $Junction = Get-Item -Path $junctionToDir
+            $Junction.Target | Should -BeExactly $rd2.ToString()
+        }
     }
 
     Context "Get-ChildItem and symbolic links" {
@@ -570,7 +701,7 @@ Describe "Hard link and symbolic link tests" -Tags "CI", "RequireAdminOnWindows"
             $omegaFile1 = Join-Path $omegaDir "OmegaFile1"
             $omegaFile2 = Join-Path $omegaDir "OmegaFile2"
             $betaDir = Join-Path $alphaDir "sub-Beta"
-            $betaLink = Join-Path $alphaDir "link-Beta"
+            $betaLink = Join-Path $alphaDir "link-Beta" # Don't change! The name is hard-coded in PowerShell for OneDrive tests.
             $betaFile1 = Join-Path $betaDir "BetaFile1.txt"
             $betaFile2 = Join-Path $betaDir "BetaFile2.txt"
             $betaFile3 = Join-Path $betaDir "BetaFile3.txt"
@@ -743,6 +874,42 @@ Describe "Hard link and symbolic link tests" -Tags "CI", "RequireAdminOnWindows"
             $childB.Count | Should -Be 1
             $childB.Count | Should -BeExactly $childA.Count
             $childB.Name | Should -BeExactly $childA.Name
+        }
+    }
+
+    Context "Show immediate target" {
+        BeforeAll {
+            $testDir = Join-Path $TestDrive "immediate-target"
+            New-Item -ItemType Directory $testDir > $null
+
+            $testFile = Join-Path $testDir "target"
+            Set-Content -Path $testFile -Value "Hello world"
+
+            Push-Location $testDir
+            New-Item -ItemType SymbolicLink -Path 'firstLink' -Value 'target' > $null
+            New-Item -ItemType SymbolicLink -Path 'secondLink' -Value 'firstLink' > $null
+            Pop-Location
+        }
+
+        AfterAll {
+            Remove-Item $testDir -Recurse -Force
+        }
+
+        It "Property 'Target' should show the immediate target" {
+            $firstLink = Get-Item (Join-Path $testDir 'firstLink')
+            $firstLink.Target | Should -BeExactly 'target'
+            $str = [Microsoft.PowerShell.Commands.FileSystemProvider]::NameString($firstLink)
+            [System.Management.Automation.Internal.StringDecorated]::new($str).ToString([System.Management.Automation.OutputRendering]::PlainText) | Should -BeExactly 'firstLink -> target'
+
+            $secondLink = Get-Item (Join-Path $testDir 'secondLink')
+            $secondLink.Target | Should -BeExactly 'firstLink'
+            $str = [Microsoft.PowerShell.Commands.FileSystemProvider]::NameString($secondLink)
+            [System.Management.Automation.Internal.StringDecorated]::new($str).ToString([System.Management.Automation.OutputRendering]::PlainText) | Should -BeExactly 'secondLink -> firstLink'
+        }
+
+        It "Get-Content should be able to resolve the final target" {
+            Get-Content (Join-Path $testDir 'firstLink') | Should -BeExactly "Hello world"
+            Get-Content (Join-Path $testDir 'secondLink') | Should -BeExactly "Hello world"
         }
     }
 }
@@ -1455,6 +1622,9 @@ Describe "Remove-Item UnAuthorized Access" -Tags "CI", "RequireAdminOnWindows" {
     }
 
     It "Access-denied test for removing a folder" -Skip:(-not $IsWindows) {
+        if (Test-IsWindowsArm64) {
+            Set-ItResult -Pending -Because "runas.exe /trustlevel:0x20000 is not supported on ARM64"
+        }
 
         # The expected error is returned when there is a empty directory with the user does not have authorization to is deleted.
         # It cannot have 'System. 'Hidden' or 'ReadOnly' attribute as well as -Force should not be used.
@@ -1527,5 +1697,121 @@ Describe "Windows admin tests" -Tag 'RequireAdminOnWindows' {
         finally {
             subst $drive /d
         }
+    }
+}
+
+Describe "OneDrive filesystem manipulation" -Tags @('CI', 'RequireAdminOnWindows') {
+    BeforeAll {
+        # on macOS, the /tmp directory is a symlink, so we'll resolve it here
+        $TestPath = $TestDrive
+        if ($IsMacOS)
+        {
+            $item = Get-Item $TestPath
+            $dirName = $item.BaseName
+            $item = Get-Item $item.PSParentPath -Force
+            if ($item.LinkType -eq "SymbolicLink")
+            {
+                $TestPath = Join-Path $item.Target $dirName
+            }
+        }
+
+        $realFile = Join-Path $TestPath "file.txt"
+        $nonFile = Join-Path $TestPath "not-a-file"
+        $fileContent = "some text"
+        $realDir = Join-Path $TestPath "subdir"
+        $nonDir = Join-Path $TestPath "not-a-dir"
+        $hardLinkToFile = Join-Path $TestPath "hard-to-file.txt"
+        $symLinkToFile = Join-Path $TestPath "sym-link-to-file.txt"
+        $symLinkToDir = Join-Path $TestPath "sym-link-to-dir"
+        $symLinkToNothing = Join-Path $TestPath "sym-link-to-nowhere"
+        $dirSymLinkToDir = Join-Path $TestPath "symd-link-to-dir"
+        $junctionToDir = Join-Path $TestPath "junction-to-dir"
+
+        New-Item -ItemType File -Path $realFile -Value $fileContent > $null
+        New-Item -ItemType Directory -Path $realDir > $null
+
+        $alphaDir = Join-Path $TestDrive "sub-alpha"
+        $alphaLink = Join-Path $TestDrive "link-alpha"
+        $alphaFile1 = Join-Path $alphaDir "AlphaFile1.txt"
+        $alphaFile2 = Join-Path $alphaDir "AlphaFile2.txt"
+        $omegaDir = Join-Path $TestDrive "sub-omega"
+        $omegaFile1 = Join-Path $omegaDir "OmegaFile1"
+        $omegaFile2 = Join-Path $omegaDir "OmegaFile2"
+        $betaDir = Join-Path $alphaDir "sub-Beta"
+        $betaLink = Join-Path $alphaDir "link-Beta" # Don't change! The name is hard-coded in PowerShell for OneDrive tests.
+        $betaFile1 = Join-Path $betaDir "BetaFile1.txt"
+        $betaFile2 = Join-Path $betaDir "BetaFile2.txt"
+        $betaFile3 = Join-Path $betaDir "BetaFile3.txt"
+        $gammaDir = Join-Path $betaDir "sub-gamma"
+        $uponeLink = Join-Path $gammaDir "upone-link"
+        $uptwoLink = Join-Path $gammaDir "uptwo-link"
+        $omegaLink = Join-Path $gammaDir "omegaLink"
+
+        New-Item -ItemType Directory -Path $alphaDir
+        New-Item -ItemType File -Path $alphaFile1
+        New-Item -ItemType File -Path $alphaFile2
+        New-Item -ItemType Directory -Path $betaDir
+        New-Item -ItemType File -Path $betaFile1
+        New-Item -ItemType File -Path $betaFile2
+        New-Item -ItemType File -Path $betaFile3
+        New-Item -ItemType Directory $omegaDir
+        New-Item -ItemType File -Path $omegaFile1
+        New-Item -ItemType File -Path $omegaFile2
+    }
+
+    AfterAll {
+        Remove-Item -Path $alphaLink -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path $betaLink -Force -ErrorAction SilentlyContinue
+    }
+
+    BeforeEach {
+        [System.Management.Automation.Internal.InternalTestHooks]::SetTestHook('OneDriveTestOn', $true)
+        [System.Management.Automation.Internal.InternalTestHooks]::SetTestHook('OneDriveTestRecurseOn', $false)
+    }
+
+    AfterEach {
+        [System.Management.Automation.Internal.InternalTestHooks]::SetTestHook('OneDriveTestRecurseOn', $false)
+        [System.Management.Automation.Internal.InternalTestHooks]::SetTestHook('OneDriveTestOn', $false)
+    }
+
+    It "Get-ChildItem will recurse into emulated OneDrive directory" -Skip:(-not $IsWindows) {
+        New-Item -ItemType SymbolicLink -Path $alphaLink -Value $alphaDir -Force
+        New-Item -ItemType SymbolicLink -Path $betaLink -Value $betaDir -Force
+
+        # '$betaDir' is a symlink - we don't follow symlinks
+        # This emulates PowerShell 6.2 and below behavior.
+        $ci = Get-ChildItem -Path $alphaDir -Recurse
+        $ci.Count | Should -BeExactly 7
+
+        # Now we follow the symlink like on OneDrive.
+        [System.Management.Automation.Internal.InternalTestHooks]::SetTestHook('OneDriveTestRecurseOn', $true)
+        $ci = Get-ChildItem -Path $alphaDir -Recurse
+        $ci.Count | Should -BeExactly 10
+    }
+
+    It "Remove-Item will recurse into emulated OneDrive directory" -Skip:(-not $IsWindows) {
+        $alphaDir = Join-Path $TestDrive "sub-alpha2"
+        $alphaLink = Join-Path $TestDrive "link-alpha2"
+        $alphaFile1 = Join-Path $alphaDir "AlphaFile1.txt"
+        $betaDir = Join-Path $alphaDir "sub-Beta"
+        $betaLink = Join-Path $alphaDir "link-Beta"
+        $betaFile1 = Join-Path $betaDir "BetaFile1.txt"
+
+        New-Item -ItemType Directory -Path $alphaDir > $null
+        New-Item -ItemType File -Path $alphaFile1 > $null
+        New-Item -ItemType Directory -Path $betaDir > $null
+        New-Item -ItemType File -Path $betaFile1 > $null
+
+        New-Item -ItemType SymbolicLink -Path $alphaLink -Value $alphaDir > $null
+        New-Item -ItemType SymbolicLink -Path $betaLink -Value $betaDir > $null
+
+        # With the test hook turned on we don't remove '$betaDir' symlink.
+        # This emulates PowerShell 7.1 and below behavior.
+        { Remove-Item -Path $betaLink -Recurse -ErrorAction Stop } | Should -Throw -ErrorId "DeleteSymbolicLinkFailed,Microsoft.PowerShell.Commands.RemoveItemCommand"
+
+        # Now we emulate OneDrive and follow the symlink like on OneDrive.
+        [System.Management.Automation.Internal.InternalTestHooks]::SetTestHook('OneDriveTestRecurseOn', $true)
+        Remove-Item -Path $betaLink -Recurse
+        Test-Path -Path $betaLink | Should -BeFalse
     }
 }

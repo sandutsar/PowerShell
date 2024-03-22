@@ -17,7 +17,7 @@ CmdletsToExport = @(
   'Show-Markdown', 'Get-MarkdownOption', 'Set-MarkdownOption', 'Add-Member', 'Get-Member', 'Compare-Object', 'Group-Object',
   'Measure-Object', 'New-Object', 'Select-Object', 'Sort-Object', 'Tee-Object', 'Register-ObjectEvent', 'Write-Output',
   'Import-PowerShellDataFile', 'Write-Progress', 'Disable-PSBreakpoint', 'Enable-PSBreakpoint', 'Get-PSBreakpoint',
-  'Remove-PSBreakpoint', 'Set-PSBreakpoint', 'Get-PSCallStack', 'Export-PSSession', 'Import-PSSession', 'Get-Random',
+  'Remove-PSBreakpoint', 'Set-PSBreakpoint', 'Get-PSCallStack', 'Export-PSSession', 'Import-PSSession', 'Get-Random', 'Get-SecureRandom'
   'Invoke-RestMethod', 'Debug-Runspace', 'Get-Runspace', 'Disable-RunspaceDebug', 'Enable-RunspaceDebug',
   'Get-RunspaceDebug', 'ConvertFrom-SddlString', 'Start-Sleep', 'Join-String', 'Out-String', 'Select-String',
   'ConvertFrom-StringData', 'Format-Table', 'New-TemporaryFile', 'New-TimeSpan', 'Get-TraceSource', 'Set-TraceSource',
@@ -29,19 +29,5 @@ CmdletsToExport = @(
 FunctionsToExport = @()
 AliasesToExport = @('fhx')
 NestedModules = @("Microsoft.PowerShell.Commands.Utility.dll")
-HelpInfoURI = 'https://aka.ms/powershell71-help'
-PrivateData = @{
-  PSData = @{
-    ExperimentalFeatures = @(
-      @{
-        Name        = 'Microsoft.PowerShell.Utility.PSManageBreakpointsInRunspace'
-        Description = 'Enables -BreakAll parameter on Debug-Runspace and Debug-Job cmdlets to allow users to decide if they want PowerShell to break immediately in the current location when they attach a debugger. Enables -Runspace parameter on *-PSBreakpoint cmdlets to support management of breakpoints in another runspace.'
-      }
-      @{
-        Name        = 'Microsoft.PowerShell.Utility.PSImportPSDataFileSkipLimitCheck'
-        Description = 'Enable -NoLimit switch for Import-PowerShellDataFile to not enforce built-in hashtable limits'
-      }
-    )
-  }
-}
+HelpInfoURI = 'https://aka.ms/powershell73-help'
 }

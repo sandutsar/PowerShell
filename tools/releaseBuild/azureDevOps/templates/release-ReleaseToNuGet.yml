@@ -1,5 +1,11 @@
+parameters:
+  - name: skipPublish
+    default: false
+    type: boolean
+    
 steps:
 - task: DownloadPipelineArtifact@2
+  condition: and(eq('${{ parameters.skipPublish }}', 'false'), succeeded())
   inputs:
     source: specific
     project: PowerShellCore
@@ -12,6 +18,7 @@ steps:
     path: '$(Pipeline.Workspace)/releasePipeline/finalResults'
 
 - task: DownloadPipelineArtifact@2
+  condition: and(eq('${{ parameters.skipPublish }}', 'false'), succeeded())
   inputs:
     source: specific
     project: PowerShellCore
@@ -29,14 +36,19 @@ steps:
 
     $releaseVersion = Get-Content "$ENV:PIPELINE_WORKSPACE/releasePipeline/metadata/release.json" | ConvertFrom-Json | Select-Object -ExpandProperty 'ReleaseVersion'
     $globalToolPath = "$ENV:PIPELINE_WORKSPACE/releasePipeline/finalResults/PowerShell.$releaseVersion.nupkg"
-    ### -WhatIf to make sure we do not release global tool. Remove -WhatIf when the PowerShell name reservation is done.
-    Copy-Item $globalToolPath -Destination "$(Pipeline.Workspace)/release" -WhatIf
+
+    if ($releaseVersion -notlike '*-*') {
+        # Copy the global tool package for stable releases
+        Copy-Item $globalToolPath -Destination "$(Pipeline.Workspace)/release"
+    }
 
     Get-ChildItem "$(Pipeline.Workspace)/release" -recurse
   displayName: Download and capture nupkgs
+  condition: and(eq('${{ parameters.skipPublish }}', 'false'), succeeded())
 
 - task: NuGetCommand@2
   displayName: 'NuGet push'
+  condition: and(eq('${{ parameters.skipPublish }}', 'false'), succeeded())
   inputs:
     command: push
     packagesToPush: '$(Pipeline.Workspace)/release/*.nupkg'

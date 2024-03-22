@@ -3,7 +3,6 @@
 
 using System;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
 namespace Microsoft.Management.UI.Internal
@@ -15,8 +14,8 @@ namespace Microsoft.Management.UI.Internal
     /// <typeparam name="T">
     /// The generic parameter.
     /// </typeparam>
-    [Serializable]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.MSInternal", "CA903:InternalNamespaceShouldNotContainPublicTypes")]
+    [Serializable]
     public class ValidatingValue<T> : ValidatingValueBase
     {
         #region Properties
@@ -166,10 +165,7 @@ namespace Microsoft.Management.UI.Internal
         {
             castValue = default(T);
 
-            if (rawValue == null)
-            {
-                throw new ArgumentNullException("rawValue");
-            }
+            ArgumentNullException.ThrowIfNull(rawValue);
 
             if (typeof(T).IsEnum)
             {
@@ -191,7 +187,6 @@ namespace Microsoft.Management.UI.Internal
             }
         }
 
-        [SuppressMessage("Performance", "CA1822: Mark members as static", Justification = "Potential breaking change")]
         private bool TryGetEnumValue(object rawValue, out T castValue)
         {
             Debug.Assert(rawValue != null, "rawValue not null");

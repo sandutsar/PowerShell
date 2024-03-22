@@ -21,8 +21,10 @@ namespace System.Management.Automation
         #region Const Members
 
         internal const string EngineSource = "PSEngine";
-        internal const string PSAnsiProgressFeatureName = "PSAnsiProgress";
-        internal const string PSNativeCommandArgumentPassingFeatureName = "PSNativeCommandArgumentPassing";
+        internal const string PSModuleAutoLoadSkipOfflineFilesFeatureName = "PSModuleAutoLoadSkipOfflineFiles";
+        internal const string PSFeedbackProvider = "PSFeedbackProvider";
+        internal const string PSCommandWithArgs = "PSCommandWithArgs";
+        internal const string PSNativeWindowsTildeExpansion = nameof(PSNativeWindowsTildeExpansion);
 
         #endregion
 
@@ -106,43 +108,27 @@ namespace System.Management.Automation
                     description: "Replace the old FileSystemProvider with cleaner design and faster code"),
                 */
                 new ExperimentalFeature(
-                    name: "PSImplicitRemotingBatching",
-                    description: "Batch implicit remoting proxy commands to improve performance"),
-                new ExperimentalFeature(
                     name: "PSCommandNotFoundSuggestion",
                     description: "Recommend potential commands based on fuzzy search on a CommandNotFoundException"),
-#if UNIX
-                new ExperimentalFeature(
-                    name: "PSUnixFileStat",
-                    description: "Provide unix permission information for files and directories"),
-#endif
-                new ExperimentalFeature(
-                    name: "PSCultureInvariantReplaceOperator",
-                    description: "Use culture invariant to-string convertor for lval in replace operator"),
-                new ExperimentalFeature(
-                    name: "PSNativePSPathResolution",
-                    description: "Convert PSPath to filesystem path, if possible, for native commands"),
-                new ExperimentalFeature(
-                    name: "PSNotApplyErrorActionToStderr",
-                    description: "Don't have $ErrorActionPreference affect stderr output"),
                 new ExperimentalFeature(
                     name: "PSSubsystemPluginModel",
                     description: "A plugin model for registering and un-registering PowerShell subsystems"),
                 new ExperimentalFeature(
-                    name: "PSAnsiRendering",
-                    description: "Enable $PSStyle variable to control ANSI rendering of strings"),
-                new ExperimentalFeature(
-                    name: PSAnsiProgressFeatureName,
-                    description: "Enable lightweight progress bar that leverages ANSI codes for rendering"),
-                new ExperimentalFeature(
-                    name: PSNativeCommandArgumentPassingFeatureName,
-                    description: "Use ArgumentList when invoking a native command"),
-                new ExperimentalFeature(
                     name: "PSLoadAssemblyFromNativeCode",
                     description: "Expose an API to allow assembly loading from native code"),
                 new ExperimentalFeature(
-                    name: "PSAnsiRenderingFileInfo",
-                    description: "Enable coloring for FileInfo objects"),
+                    name: PSModuleAutoLoadSkipOfflineFilesFeatureName,
+                    description: "Module discovery will skip over files that are marked by cloud providers as not fully on disk."),
+                new ExperimentalFeature(
+                    name: PSFeedbackProvider,
+                    description: "Replace the hard-coded suggestion framework with the extensible feedback provider"),
+                new ExperimentalFeature(
+                    name: PSCommandWithArgs,
+                    description: "Enable `-CommandWithArgs` parameter for pwsh"),
+                new ExperimentalFeature(
+                    name: PSNativeWindowsTildeExpansion,
+                    description: "On windows, expand unquoted tilde (`~`) with the user's current home folder."
+                )
             };
 
             EngineExperimentalFeatures = new ReadOnlyCollection<ExperimentalFeature>(engineFeatures);
@@ -169,13 +155,30 @@ namespace System.Management.Automation
         }
 
         /// <summary>
+        /// We need to notify which features were not enabled.
+        /// </summary>
+        private static void SendTelemetryForDeactivatedFeatures(ReadOnlyBag<string> enabledFeatures)
+        {
+            foreach (var feature in EngineExperimentalFeatures)
+            {
+                if (!enabledFeatures.Contains(feature.Name))
+                {
+                    ApplicationInsightsTelemetry.SendTelemetryMetric(TelemetryType.ExperimentalEngineFeatureDeactivation, feature.Name);
+                }
+            }
+        }
+
+        /// <summary>
         /// Process the array of enabled feature names retrieved from configuration.
         /// Ignore invalid feature names and unavailable engine feature names, and
         /// return an ReadOnlyBag of the valid enabled feature names.
         /// </summary>
         private static ReadOnlyBag<string> ProcessEnabledFeatures(string[] enabledFeatures)
         {
-            if (enabledFeatures.Length == 0) { return ReadOnlyBag<string>.Empty; }
+            if (enabledFeatures.Length == 0)
+            {
+                return ReadOnlyBag<string>.Empty;
+            }
 
             var list = new List<string>(enabledFeatures.Length);
             foreach (string name in enabledFeatures)
@@ -206,7 +209,9 @@ namespace System.Management.Automation
                 }
             }
 
-            return new ReadOnlyBag<string>(new HashSet<string>(list, StringComparer.OrdinalIgnoreCase));
+            ReadOnlyBag<string> features = new(new HashSet<string>(list, StringComparer.OrdinalIgnoreCase));
+            SendTelemetryForDeactivatedFeatures(features);
+            return features;
         }
 
         /// <summary>
